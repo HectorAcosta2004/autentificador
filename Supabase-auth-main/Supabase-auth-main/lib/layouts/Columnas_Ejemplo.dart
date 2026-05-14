@@ -11,8 +11,6 @@ class ColumnasEjemplo extends StatelessWidget {
         width: double.infinity,
         height: double.infinity,
         color: Color.fromARGB(253, 63, 113, 120),
-        child: Column(children: [Text('Rojo'), Text('Verde')]),
-        color: Colors.red,
       ),
     );
   }
