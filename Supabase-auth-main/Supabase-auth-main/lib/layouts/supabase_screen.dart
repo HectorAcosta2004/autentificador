@@ -21,27 +21,48 @@ class _AuthScreenState extends State<AuthScreen> {
   // -------- BIOMETRÍA --------
   Future<void> _authenticateBiometric() async {
     try {
+      // 1. Verificar soporte hardware
       final bool canCheckBiometrics = await auth.canCheckBiometrics;
       final bool isDeviceSupported = await auth.isDeviceSupported();
 
       if (!canCheckBiometrics && !isDeviceSupported) {
-        _showMsg("Biometría no soportada en este dispositivo", Colors.red);
-
+        _showMsg("Biometría no soportada", Colors.red);
         return;
       }
 
+      // 2. Lanzar el sensor
       final bool didAuthenticate = await auth.authenticate(
-        localizedReason: 'Autentícate para continuar',
+        localizedReason:
+            'Por favor, escanea tu huella para acceder a tus tareas',
+        options: const AuthenticationOptions(
+          stickyAuth:
+              true, // Mantiene la autenticación si el usuario sale de la app un segundo
+          biometricOnly: true,
+        ),
       );
 
       if (didAuthenticate) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MyApp()),
-        );
+        // 3. ¡PASO CLAVE! Verificar si Supabase tiene una sesión válida guardada
+        final session = Supabase.instance.client.auth.currentSession;
+
+        if (session != null) {
+          // Si hay sesión, vamos al Gestor de Tareas
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const MyApp()),
+            );
+          }
+        } else {
+          // Si no hay sesión (primera vez o cerró sesión), obligar a usar Email/Password
+          _showMsg(
+            "Inicia sesión con contraseña al menos una vez para vincular tu huella",
+            Colors.orange,
+          );
+        }
       }
     } catch (e) {
-      _showMsg("Error de biometría: $e", Colors.red);
+      _showMsg("Error: $e", Colors.red);
     }
   }
 
