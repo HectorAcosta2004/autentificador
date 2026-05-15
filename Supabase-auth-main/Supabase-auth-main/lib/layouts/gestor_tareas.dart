@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() {
   runApp(const MyApp());
@@ -24,22 +25,35 @@ class Tarea {
   factory Tarea.fromJson(Map<String, dynamic> json) {
     return Tarea(
       id: json['id'],
-      titulo: json['titulo'],
-      materia: json['materia'],
-      descripcion: json['descripcion'],
-      fecha: json['fecha_limite'],
+      titulo: json['titulo'] ?? '',
+      materia: json['materia'] ?? '',
+      descripcion: json['descripcion'] ?? '',
+      fecha: json['fecha_limite'] ?? '',
     );
   }
 }
 
-Future<List<Tarea>> fetchTareas() async {
-  final response = await http.get(Uri.parse('http://localhost:3000/tareas'));
+// Función auxiliar para obtener el token de Supabase
+Map<String, String> get _headers => {
+  "Content-Type": "application/json",
+  "Authorization":
+      "Bearer ${Supabase.instance.client.auth.currentSession?.accessToken}",
+};
 
-  if (response.statusCode == 200) {
-    List jsonResponse = jsonDecode(response.body);
-    return jsonResponse.map((t) => Tarea.fromJson(t)).toList();
-  } else {
-    throw Exception('Error al cargar tareas');
+const String baseUrl = 'http://192.168.0.20:3000/tareas';
+
+Future<List<Tarea>> fetchTareas() async {
+  try {
+    final response = await http.get(Uri.parse(baseUrl), headers: _headers);
+
+    if (response.statusCode == 200) {
+      List jsonResponse = jsonDecode(response.body);
+      return jsonResponse.map((t) => Tarea.fromJson(t)).toList();
+    } else {
+      throw Exception('Error del servidor: ${response.statusCode}');
+    }
+  } catch (e) {
+    throw Exception('No se pudo conectar con el servidor');
   }
 }
 
@@ -51,8 +65,8 @@ Future<void> agregarTarea(
 ) async {
   String fechaFormateada = fecha.split("T")[0];
   await http.post(
-    Uri.parse('http://localhost:3000/tareas'),
-    headers: {"Content-Type": "application/json"},
+    Uri.parse(baseUrl),
+    headers: _headers,
     body: jsonEncode({
       "titulo": titulo,
       "materia": materia,
@@ -70,10 +84,9 @@ Future<void> editarTarea(
   String fecha,
 ) async {
   String fechaFormateada = fecha.split("T")[0];
-
-  final response = await http.put(
-    Uri.parse('http://localhost:3000/tareas$id'),
-    headers: {"Content-Type": "application/json"},
+  await http.put(
+    Uri.parse('$baseUrl/$id'), // Corregido: añadida la barra /
+    headers: _headers,
     body: jsonEncode({
       "titulo": titulo,
       "materia": materia,
@@ -81,11 +94,10 @@ Future<void> editarTarea(
       "fecha_limite": fechaFormateada,
     }),
   );
-  print(response.body);
 }
 
 Future<void> eliminarTarea(int id) async {
-  await http.delete(Uri.parse('http://localhost:3000/tareas$id'));
+  await http.delete(Uri.parse('$baseUrl/$id'), headers: _headers); // Corregido
 }
 
 class MyApp extends StatefulWidget {
@@ -98,10 +110,10 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   late Future<List<Tarea>> futureTareas;
 
-  final TextEditingController tituloController = TextEditingController();
-  final TextEditingController materiaController = TextEditingController();
-  final TextEditingController descripcionController = TextEditingController();
-  final TextEditingController fechaController = TextEditingController();
+  final tituloController = TextEditingController();
+  final materiaController = TextEditingController();
+  final descripcionController = TextEditingController();
+  final fechaController = TextEditingController();
 
   int? tareaEditandoId;
 
@@ -118,14 +130,13 @@ class _MyAppState extends State<MyApp> {
   }
 
   void cargarTareaParaEditar(Tarea tarea) {
-    tituloController.text = tarea.titulo;
-    materiaController.text = tarea.materia;
-    descripcionController.text = tarea.descripcion;
-    fechaController.text = tarea.fecha;
-
-    tareaEditandoId = tarea.id;
-
-    setState(() {});
+    setState(() {
+      tituloController.text = tarea.titulo;
+      materiaController.text = tarea.materia;
+      descripcionController.text = tarea.descripcion;
+      fechaController.text = tarea.fecha.split("T")[0];
+      tareaEditandoId = tarea.id;
+    });
   }
 
   void limpiarFormulario() {
@@ -134,121 +145,144 @@ class _MyAppState extends State<MyApp> {
     descripcionController.clear();
     fechaController.clear();
     tareaEditandoId = null;
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Lista de tareas',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
       home: Scaffold(
-        appBar: AppBar(title: const Text('Lista de tareas')),
-        body: Center(
-          child: FutureBuilder<List<Tarea>>(
-            future: futureTareas,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const CircularProgressIndicator();
-              }
-
-              if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}');
-              }
-
-              final tareas = snapshot.data!;
-
-              return Column(
+        appBar: AppBar(
+          title: const Text('Gestor de Tareas Académicas'),
+          actions: [
+            IconButton(onPressed: recargar, icon: const Icon(Icons.refresh)),
+          ],
+        ),
+        body: Column(
+          children: [
+            // FORMULARIO
+            Container(
+              padding: const EdgeInsets.all(16),
+              color: Colors.grey.shade100,
+              child: Column(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: tituloController,
-                          decoration: const InputDecoration(
-                            labelText: "Título de la tarea",
-                          ),
-                        ),
-
-                        TextField(
+                  TextField(
+                    controller: tituloController,
+                    decoration: const InputDecoration(labelText: "Título"),
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
                           controller: materiaController,
                           decoration: const InputDecoration(
                             labelText: "Materia",
                           ),
                         ),
-
-                        TextField(
-                          controller: descripcionController,
-                          decoration: const InputDecoration(
-                            labelText: "Descripción",
-                          ),
-                        ),
-
-                        TextField(
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
                           controller: fechaController,
                           decoration: const InputDecoration(
-                            labelText: "Fecha de entrega",
+                            labelText: "Fecha (AAAA-MM-DD)",
                           ),
                         ),
-
-                        const SizedBox(height: 10),
-
-                        ElevatedButton(
-                          onPressed: () async {
-                            if (tareaEditandoId == null) {
-                              await agregarTarea(
-                                tituloController.text,
-                                materiaController.text,
-                                descripcionController.text,
-                                fechaController.text,
-                              );
-                            } else {
-                              await editarTarea(
-                                tareaEditandoId!,
-                                tituloController.text,
-                                materiaController.text,
-                                descripcionController.text,
-                                fechaController.text,
-                              );
-                            }
-
-                            limpiarFormulario();
-                            recargar();
-                          },
-
-                          child: Text(
-                            tareaEditandoId == null
-                                ? "Agregar tarea"
-                                : "Actualizar tarea",
-                          ),
-                        ),
-                      ],
+                      ),
+                    ],
+                  ),
+                  TextField(
+                    controller: descripcionController,
+                    decoration: const InputDecoration(labelText: "Descripción"),
+                  ),
+                  const SizedBox(height: 15),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 45),
+                    ),
+                    onPressed: () async {
+                      if (tareaEditandoId == null) {
+                        await agregarTarea(
+                          tituloController.text,
+                          materiaController.text,
+                          descripcionController.text,
+                          fechaController.text,
+                        );
+                      } else {
+                        await editarTarea(
+                          tareaEditandoId!,
+                          tituloController.text,
+                          materiaController.text,
+                          descripcionController.text,
+                          fechaController.text,
+                        );
+                      }
+                      limpiarFormulario();
+                      recargar();
+                    },
+                    child: Text(
+                      tareaEditandoId == null
+                          ? "AGREGAR TAREA"
+                          : "ACTUALIZAR TAREA",
                     ),
                   ),
+                  if (tareaEditandoId != null)
+                    TextButton(
+                      onPressed: limpiarFormulario,
+                      child: const Text("Cancelar edición"),
+                    ),
+                ],
+              ),
+            ),
+            // LISTA
+            Expanded(
+              child: FutureBuilder<List<Tarea>>(
+                future: futureTareas,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting)
+                    return const Center(child: CircularProgressIndicator());
+                  if (snapshot.hasError)
+                    return Center(child: Text('${snapshot.error}'));
+                  if (!snapshot.hasData || snapshot.data!.isEmpty)
+                    return const Center(
+                      child: Text('No hay tareas pendientes'),
+                    );
 
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: tareas.length,
-                      itemBuilder: (context, index) {
-                        final tarea = tareas[index];
-
-                        return ListTile(
-                          title: Text(tarea.titulo),
-                          subtitle: Text(
-                            "${tarea.materia} - ${tarea.fecha.split("T")[0]}",
+                  return ListView.builder(
+                    itemCount: snapshot.data!.length,
+                    itemBuilder: (context, index) {
+                      final tarea = snapshot.data![index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        child: ListTile(
+                          title: Text(
+                            tarea.titulo,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
-
+                          subtitle: Text(
+                            "${tarea.materia}\n${tarea.descripcion}",
+                          ),
+                          isThreeLine: true,
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.edit),
-                                onPressed: () {
-                                  cargarTareaParaEditar(tarea);
-                                },
+                                icon: const Icon(
+                                  Icons.edit,
+                                  color: Colors.blue,
+                                ),
+                                onPressed: () => cargarTareaParaEditar(tarea),
                               ),
-
                               IconButton(
-                                icon: const Icon(Icons.delete),
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.red,
+                                ),
                                 onPressed: () async {
                                   await eliminarTarea(tarea.id);
                                   recargar();
@@ -256,14 +290,14 @@ class _MyAppState extends State<MyApp> {
                               ),
                             ],
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

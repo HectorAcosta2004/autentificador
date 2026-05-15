@@ -85,5 +85,5 @@ app.delete('/tareas/:id', authenticateToken, (req, res) => {
 // 5. INICIO DEL SERVIDOR
 const PORT = 3000;
 app.listen(PORT, () => {
-    console.log(`Servidor API corriendo en http://localhost:${PORT}`);
+    console.log(`Servidor API corriendo en http://192.168.0.20:${PORT}`);
 });
